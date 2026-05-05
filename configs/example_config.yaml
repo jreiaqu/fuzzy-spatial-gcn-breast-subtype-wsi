@@ -1,0 +1,71 @@
+# Example configuration for molecular subtype prediction experiments
+# Adjust paths and hyperparameters to match your setup
+
+paths:
+  # Data directories (see data/README.md for download instructions)
+  bcnb_graphs: data/BCNB/graphs/
+  sbc_graphs: data/SBC/graphs/
+  bcnb_splits: data/BCNB/splits/
+  sbc_folds: data/SBC/folds/
+  ground_truth_bcnb: data/BCNB/ground_truth/
+  ground_truth_sbc: data/SBC/ground_truth/
+
+  # Model weights
+  weights_dir: weights/
+
+  # Output directories
+  predictions: results/predictions/
+  clinical: results/clinical/
+  interpretability: results/interpretability/
+  topology: results/topology/
+  figures: results/figures/
+
+model:
+  # GCN architecture (context-aware)
+  gnn_layer_type: GENConv
+  num_layers: 5
+  hidden_dim: 128
+  num_features: 512  # VGG16 or CONCH feature dimension
+  pooling: attention  # mean, max, or attention (gated)
+  dropout: 0.25
+  include_edge_features: false
+
+  # KNN graph construction
+  knn_k: 19
+
+training:
+  # Monte Carlo cross-validation
+  n_folds: 5
+  n_repeats: 3
+
+  # Task-specific learning rates (from paper)
+  learning_rates:
+    2class: 5.0e-06
+    3class: 2.0e-05
+    4class: 1.0e-05
+
+  weight_decay: 1.0e-05
+  epochs: 200
+  early_stopping_patience: 20
+  batch_size: 1  # WSI-level, one graph per batch
+
+evaluation:
+  # Classification tasks
+  tasks:
+    - 2class   # TNBC vs Other
+    - 3class   # Luminals vs HER2+ vs TNBC
+    - 4class   # Luminal A vs Luminal B vs HER2+ vs TNBC
+
+  # McNemar's test significance level
+  alpha: 0.05
+
+interpretability:
+  # Attention mass threshold for analysis
+  attention_mass_threshold: 0.50  # Top patches carrying 50% of attention
+  # Tissue types analyzed
+  tissue_types:
+    - tumor
+    - stroma
+    - inflammation
+    - necrosis
+    - other

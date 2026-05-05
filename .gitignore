@@ -1,0 +1,53 @@
+# Data files (too large for git)
+data/BCNB/*.pt
+data/BCNB/*.pkl
+data/SBC/*.pt
+data/SBC/*.pkl
+*.h5
+*.hdf5
+
+# Model weights
+weights/*.pth
+weights/*.pt
+weights/*.ckpt
+
+# Large result files
+results/**/*.pkl
+results/**/*.pickle
+
+# Whole-slide images
+*.svs
+*.ndpi
+*.tif
+*.tiff
+*.mrxs
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
