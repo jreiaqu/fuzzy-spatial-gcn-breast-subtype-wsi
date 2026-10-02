@@ -51,3 +51,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local data, generated graphs and experiment outputs (TFG)
+data/BCNB/*/
+data/SBC/*/
+data/CLARIFY/
+original_data/
+results/*/
+logs/
