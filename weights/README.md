@@ -37,6 +37,10 @@ All NCA models use:
 - Trained on full BCNB dataset (100 epochs)
 - See Table 2 in the paper for per-task performance metrics.
 
+### Fuzzy edge-weighting backbones (TFG)
+
+`weights/fuzzy/` contains the GCN backbones trained on BCNB with fuzzy edge weighting, used for the SBC transfer experiments. See [`weights/fuzzy/README.md`](fuzzy/README.md).
+
 ## Usage
 
 ```python
