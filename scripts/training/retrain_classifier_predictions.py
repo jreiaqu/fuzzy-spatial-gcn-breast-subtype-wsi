@@ -110,7 +110,20 @@ _applied_patches = _apply_compat_patches()
 # [REPLACED by _paths.py] GCN_WEIGHTS    = f"{MOLSUB_ROOT}/data/gcn_pretrained_models"
 NCA_WEIGHTS    = f"{MOLSUB_ROOT}/data/feature_extractors"
 SBC_GRAPHS = f"{MOLSUB_ROOT}/data/SBC/results_graphs_january_25"
-SBC_GT     = f"{MOLSUB_ROOT}/data/SBC/ground_truth/CBDC_4_may2024_gt_extended.xlsx"
+# Same graphs with graph['edge_feat_dist'] added by compute_morphological_edges.py
+# (needed by the morphological, morphological_fuzzy and combined_fuzzy backbones)
+SBC_GRAPHS_MORPH = f"{MOLSUB_ROOT}/data/SBC/results_graphs_january_25_morph"
+# Graphs rebuilt by generate_fuzzy_graphs.py with the sigmas of each Option 1
+# backbone (option1, option1_rank2, option1_rank3)
+SBC_GRAPHS_OPTION1 = {
+    "option1": f"{MOLSUB_ROOT}/data/SBC/results_graphs_january_25_option1",
+    "option1_rank2": f"{MOLSUB_ROOT}/data/SBC/results_graphs_january_25_option1_rank2",
+    "option1_rank3": f"{MOLSUB_ROOT}/data/SBC/results_graphs_january_25_option1_rank3",
+}
+# The ground truth file used by the reference work (CBDC_4_may2024_gt_extended.xlsx)
+# was not available; the CLARIFY January 2024 clinical export is used instead
+# (see load_sbc_gt()).
+SBC_GT     = f"{MOLSUB_ROOT}/data/CLARIFY/CLARIFY JANUARY 2024/unified_clinical_info_CBDC_jan2024.xlsx"
 # [REPLACED by _paths.py] RESULTS_DIR    = "/Users/kckj099/Documents/CMPB-Review/results"
 
 # Add code dir for model class imports
@@ -122,9 +135,9 @@ SBC_GT     = f"{MOLSUB_ROOT}/data/SBC/ground_truth/CBDC_4_may2024_gt_extended.xl
 
 GCN_MODELS = {
     "2class": {
-        # Retrained with GENConv/attention (Session 4, 2026-05-01). MC-CV selected.
-        "filename": "2class_GENConv_5L_attn_5L_attn_lr1e5_wd_final.pth",
-        "weights_dir": os.path.join(WEIGHTS_DIR, "retrained"),
+        # EP1 final weights shipped in this repo (weights/README.md, Table 2).
+        "filename": "bcnb_2class_ca_genconv_attn.pth",
+        "weights_dir": WEIGHTS_DIR,
         "task": "OTHERvsTNBC",
         "n_classes": 2,
         "knn": 19,
@@ -133,10 +146,8 @@ GCN_MODELS = {
         "num_layers": 5,
     },
     "3class": {
-        # Retrained with GENConv (Session 3b, 2026-04-29). MC-CV selected.
-        # See results/retrained_models/3class_retrain_provenance.json
-        "filename": "3class_GENConv_5L_attn_lr2e5_final.pth",
-        "weights_dir": os.path.join(WEIGHTS_DIR, "retrained"),
+        "filename": "bcnb_3class_ca_genconv_attn.pth",
+        "weights_dir": WEIGHTS_DIR,
         "task": "LUMINALSvsHER2vsTNBC",
         "n_classes": 3,
         "knn": 19,
@@ -145,9 +156,8 @@ GCN_MODELS = {
         "num_layers": 5,
     },
     "4class": {
-        # Retrained with GENConv/attention (Session 4, 2026-05-01). MC-CV selected.
-        "filename": "4class_GENConv_5L_attn_5L_attn_lr1e5_final.pth",
-        "weights_dir": os.path.join(WEIGHTS_DIR, "retrained"),
+        "filename": "bcnb_4class_ca_genconv_attn.pth",
+        "weights_dir": WEIGHTS_DIR,
         "task": "LUMINALAvsLAUMINALBvsHER2vsTNBC",
         "n_classes": 4,
         "knn": 19,
@@ -159,17 +169,20 @@ GCN_MODELS = {
 
 NCA_MODELS = {
     "2class": {
-        "filename": "PM_OTHERvsTNBC_BB_vgg16_AGGR_attention_LR_0.002_OPT_sgd_T_full_dataset_D_BCNB_E_100_L_cross_entropy_OWD_0_FBB_False_PT_True_MAGN_10x_N_100_Anetwork_weights_best_f1.pth",
+        "filename": "bcnb_2class_nca_vgg16_attn.pth",
+        "weights_dir": WEIGHTS_DIR,
         "task": "OTHERvsTNBC",
         "n_classes": 2,
     },
     "3class": {
-        "filename": "PM_LUMINALSvsHER2vsTNBC_BB_vgg16_AGGR_attention_LR_0.002_OPT_sgd_T_full_dataset_D_BCNB_E_100_L_cross_entropy_OWD_0_FBB_False_PT_True_MAGN_10network_weights_best_f1.pth",
+        "filename": "bcnb_3class_nca_vgg16_attn.pth",
+        "weights_dir": WEIGHTS_DIR,
         "task": "LUMINALSvsHER2vsTNBC",
         "n_classes": 3,
     },
     "4class": {
-        "filename": "PM_LUMINALAvsLAUMINALBvsHER2vsTNBC_BB_vgg16_AGGR_attention_LR_0.002_OPT_sgd_T_full_dataset_D_BCNB_E_100_L_cross_entropy_OWD_0_FBB_False_PT_Tnetwork_weights_best_f1.pth",
+        "filename": "bcnb_4class_nca_vgg16_attn.pth",
+        "weights_dir": WEIGHTS_DIR,
         "task": "LUMINALAvsLAUMINALBvsHER2vsTNBC",
         "n_classes": 4,
     },
@@ -199,17 +212,76 @@ TASK_CLASS_NAMES = {
 # Ground truth loading
 # ---------------------------------------------------------------------------
 
+def _ihc_is_positive(v):
+    return isinstance(v, str) and v.strip().lower() == "positive"
+
+
+def _ihc_is_negative_or_borderline(v):
+    return isinstance(v, str) and v.strip().lower() in ("negative", "borderline")
+
+
+def _ihc_class_bucket(row):
+    """Surrogate-subtype group ('Luminal', 'HER2', 'TNBC') supported by the
+    ER/PR/HER2 status of a patient, or None if any of the three is missing.
+
+    A subtype cannot be assigned without a definite ER/PR/HER2 status, so
+    these patients are excluded (the reference work excludes 207/745 cases
+    for ambiguous markers; this gate excludes 204/745). "Borderline" is
+    treated as negative; in this cohort it does not change the group of any
+    patient, since another marker already decides it.
+    """
+    er, pr, her2 = row["Estr_receptor"], row["Prog_receptor"], row["HER2"]
+    if _ihc_is_positive(her2):
+        return "HER2"
+    if (_ihc_is_positive(er) or _ihc_is_positive(pr)) and _ihc_is_negative_or_borderline(her2):
+        return "Luminal"
+    if _ihc_is_negative_or_borderline(er) and _ihc_is_negative_or_borderline(pr) and _ihc_is_negative_or_borderline(her2):
+        return "TNBC"
+    return None
+
+
 def load_sbc_gt():
-    """Load SBC ground truth, filter excluded, map to task labels."""
+    """Load the SBC ground truth and map it to the task labels.
+
+    Source: CLARIFY January 2024 clinical export (SBC_GT). It has the
+    surrogate subtype in `MolSubtype_surr` ("Triple negative" instead of
+    "TNBC") instead of the `Molsub_surr_4clf` / `Molsub_surr_7clf` columns of
+    the file used by the reference work. Two corrections are applied:
+
+    1. ER/PR/HER2 completeness (`_ihc_class_bucket`). Of the 180 patients
+       with missing ER/PR/HER2, 134 are labelled "Triple negative" in
+       `MolSubtype_surr`; they are excluded.
+
+    2. Luminal A/B from MAI, for the Luminal group (HER2-negative, hormone
+       receptor positive) only. The sheet has no Ki67, so the MAI fallback
+       of the reference work's Algorithm 1 is applied: MAI < 10 -> A,
+       MAI >= 10 -> B (53 of the 92 patients labelled "Luminal B" have
+       MAI < 10). HER2+ patients keep their label. The A/B split goes from
+       43.0% / 26.6% to 48.3% / 21.1% (reference work: 52.5% / 14.4%). The
+       reclassified patients have a mean Nottingham Sum_grade of 6.50,
+       between the A (5.42) and B (7.73) groups. Without Ki67 this remains
+       an approximation.
+
+    Final cohort: 540 patients (reference work: 533).
+    """
     df = pd.read_excel(SBC_GT)
-    df = df.rename(columns={"SUS_number": "patient_id", "Molsub_surr_4clf": "mol_subtype"})
+    df = df.rename(columns={"SUS_number": "patient_id", "MolSubtype_surr": "mol_subtype"})
+    df["mol_subtype"] = df["mol_subtype"].replace({"Triple negative": "TNBC"})
 
-    # Filter where Molsub_surr_7clf != 'Excluded' (as in original script)
-    df = df[df["Molsub_surr_7clf"] != "Excluded"].copy()
+    df["ihc_class_bucket"] = df.apply(_ihc_class_bucket, axis=1)
+    df = df[df["ihc_class_bucket"].notna()].copy()
 
-    # Also exclude rows where mol_subtype itself is 'Excluded' or missing
+    # Exclude rows with no definitive subtype call (ambiguous proliferation markers)
     df = df[df["mol_subtype"].notna()].copy()
-    df = df[df["mol_subtype"] != "Excluded"].copy()
+
+    # MAI-based Luminal A/B override (see docstring point 2)
+    is_luminal_bucket = df["ihc_class_bucket"] == "Luminal"
+    has_mai = df["MAI"].notna()
+    df = df[~is_luminal_bucket | has_mai].copy()  # drop Luminal-bucket patients with no MAI
+    is_luminal_bucket = df["ihc_class_bucket"] == "Luminal"
+    mai_lt10 = df["MAI"] < 10
+    df.loc[is_luminal_bucket & mai_lt10, "mol_subtype"] = "Luminal A"
+    df.loc[is_luminal_bucket & ~mai_lt10, "mol_subtype"] = "Luminal B"
 
     # Map to task-specific labels
     df["label_4class"] = df["mol_subtype"].map({
@@ -277,6 +349,68 @@ def load_nca_model(model_path, device):
     return model
 
 
+def load_fuzzy_gcn_model(model_path, device):
+    """Load a GCN saved by retrain_gcn_mccv_generic.py as
+    {'state_dict': ..., 'config': {...}}; the config holds the architecture,
+    edge_mode and bandwidths.
+    """
+    from MIL_models import PatchGCN_MeanMax_LSelec
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"GCN model not found: {model_path}")
+
+    ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
+    cfg = ckpt["config"]
+
+    model = PatchGCN_MeanMax_LSelec(
+        num_features=512,
+        hidden_dim=128,
+        num_layers=cfg["num_layers"],
+        n_classes=cfg["n_classes"],
+        pooling="attention",
+        gnn_layer_type="GENConv",
+        use_edge_features=True,
+        edge_mode=cfg["edge_mode"],
+        sigma_spatial=cfg["sigma_spatial"],
+        sigma_morphological=cfg["sigma_morphological"],
+        alpha=cfg["alpha"],
+    )
+    load_result = model.load_state_dict(ckpt["state_dict"], strict=True)
+    if load_result.missing_keys or load_result.unexpected_keys:
+        print(f"  WARNING: state_dict mismatch. Missing: {load_result.missing_keys}, "
+              f"Unexpected: {load_result.unexpected_keys}")
+
+    model = model.to(device)
+    model.eval()
+    return model, cfg
+
+
+# Backbones trained on BCNB with fuzzy edge weighting (weights/fuzzy/, see
+# weights/README.md). --fuzzy-mode selects one of them:
+#   Option 2: spatial, morphological, spatial_fuzzy, morphological_fuzzy,
+#             combined_fuzzy (MC-CV winner of each edge mode)
+#   Option 1: option1, option1_rank2, option1_rank3 (three best sigma
+#             combinations of the sweep by MC-CV F1)
+FUZZY_MODES = [
+    "spatial", "morphological", "spatial_fuzzy", "morphological_fuzzy", "combined_fuzzy",
+    "option1", "option1_rank2", "option1_rank3",
+]
+FUZZY_WEIGHTS_DIR = os.path.join(WEIGHTS_DIR, "fuzzy")
+
+
+def fuzzy_checkpoint_path(fuzzy_mode, task_key):
+    return os.path.join(FUZZY_WEIGHTS_DIR, f"bcnb_{task_key}_{fuzzy_mode}.pth")
+
+
+def sbc_graph_base(fuzzy_mode):
+    """SBC graph directory needed by each backbone."""
+    if fuzzy_mode in SBC_GRAPHS_OPTION1:
+        return SBC_GRAPHS_OPTION1[fuzzy_mode]
+    if fuzzy_mode in ("morphological", "morphological_fuzzy", "combined_fuzzy"):
+        return SBC_GRAPHS_MORPH
+    return SBC_GRAPHS
+
+
 def load_gcn_model(model_path, config, device):
     """Load a GCN model using state_dict reconstruction.
 
@@ -302,6 +436,7 @@ def load_gcn_model(model_path, config, device):
         n_classes=config["n_classes"],
         pooling=config["pooling"],
         gnn_layer_type=config["gnn_layer_type"],
+        use_edge_features=False,  # EP1 checkpoints predate edge-weighting; topology-only
     )
 
     # Step 3: Transfer weights
@@ -448,14 +583,22 @@ def weighted_cross_entropy(y_pred, y_true, class_weights=None):
 def monte_carlo_cv(X, y, patient_ids, classifier, task_name, n_classes,
                    n_folds=5, n_repeats=3, batch_size=128, epochs=200,
                    lr=0.0001, weight_decay=None, device_str="cpu",
-                   verbose=True):
+                   verbose=True, patience=None):
     """Retrain the classifier layer using stratified k-fold CV with repeats.
 
     The approach follows the original retrain_ca_nca_classifiers.py:
       - For each repeat, shuffle X/y with a new random seed
       - For each fold, deepcopy the original classifier, retrain from scratch
-      - Train with Adam optimizer, weighted cross-entropy, for `epochs` epochs
+      - Train with Adam optimizer, weighted cross-entropy, for a fixed number
+        of `epochs` and evaluate the final state (default)
       - Record per-patient predictions on the test fold
+
+    By default there is no early stopping: SBC has no split held out from the
+    CV, so stopping on the held-out fold's F1 would select the epoch on the
+    same data the metric is reported on (optimistic bias). This is the
+    protocol used for the SBC results reported in the TFG. Passing
+    `patience` (> 0) enables early stopping on the held-out fold's F1, as in
+    retrain_gcn_mccv_generic.py's train_with_patience(), with that caveat.
 
     Args:
         X: np.ndarray (N, feat_dim), aggregated WSI-level features
@@ -483,11 +626,15 @@ def monte_carlo_cv(X, y, patient_ids, classifier, task_name, n_classes,
     all_predictions = []
     all_metrics = []
 
-    skf = StratifiedKFold(n_splits=n_folds, shuffle=True)
-
     for repeat in range(n_repeats):
         if verbose:
             print(f"  Repeat {repeat + 1}/{n_repeats}")
+
+        # Fixed seed per repeat (same convention as the BCNB MC-CV in
+        # retrain_gcn_mccv_generic.py), so every backbone is evaluated on the
+        # same folds. The SBC fold file of the reference work
+        # (data/SBC/new_CV_folds_SBC_DB) was not available.
+        skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=repeat * 42)
 
         # Reshuffle data with repeat-specific seed (same as original script)
         X_shuffled, y_shuffled, pids_shuffled = sklearn_shuffle(
@@ -517,7 +664,9 @@ def monte_carlo_cv(X, y, patient_ids, classifier, task_name, n_classes,
                 opt_kwargs["weight_decay"] = weight_decay
             optimizer = torch.optim.Adam(fold_classifier.parameters(), **opt_kwargs)
 
-            # Train for the specified number of epochs
+            # Fixed epochs by default; optional early stopping on the held-out
+            # fold's F1 when patience > 0 (see docstring)
+            best_f1, best_state, pat = -1.0, deepcopy(fold_classifier.state_dict()), 0
             for epoch in range(epochs):
                 fold_classifier.train()
                 for i in range(0, len(X_train), batch_size):
@@ -530,7 +679,28 @@ def monte_carlo_cv(X, y, patient_ids, classifier, task_name, n_classes,
                     loss.backward()
                     optimizer.step()
 
-            # Evaluate on test fold
+                if not patience:
+                    continue
+
+                fold_classifier.eval()
+                with torch.no_grad():
+                    val_logits = fold_classifier(X_test)
+                    val_pred = torch.argmax(val_logits, dim=1).cpu().numpy()
+                    val_f1 = f1_score(y_test.cpu().numpy(), val_pred, average='weighted', zero_division=0)
+
+                if val_f1 > best_f1:
+                    best_f1 = val_f1
+                    best_state = deepcopy(fold_classifier.state_dict())
+                    pat = 0
+                else:
+                    pat += 1
+                if pat >= patience:
+                    break
+
+            if patience:
+                fold_classifier.load_state_dict(best_state)
+
+            # Evaluate on test fold (final weights, or early-stopped best weights)
             fold_classifier.eval()
             with torch.no_grad():
                 test_logits = fold_classifier(X_test)
@@ -625,20 +795,29 @@ def run_transfer_learning(model_type, args):
               f"(task={task_name}, k={knn}) ---")
 
         # Step 1: Load model (use per-task weights_dir if specified, else default)
-        task_weights_dir = config.get("weights_dir", weights_dir)
-        model_path = os.path.join(task_weights_dir, config["filename"])
         try:
-            if model_type == "ca":
+            if model_type == "ca" and getattr(args, "fuzzy_mode", None):
+                model_path = fuzzy_checkpoint_path(args.fuzzy_mode, task_key)
+                model, loaded_cfg = load_fuzzy_gcn_model(model_path, device)
+                print(f"  Model loaded: {type(model).__name__} "
+                      f"({os.path.basename(model_path)}, edge_mode={loaded_cfg['edge_mode']})")
+            elif model_type == "ca":
+                task_weights_dir = config.get("weights_dir", weights_dir)
+                model_path = os.path.join(task_weights_dir, config["filename"])
                 model = load_gcn_model(model_path, config, device)
+                print(f"  Model loaded: {type(model).__name__}")
             else:
+                task_weights_dir = config.get("weights_dir", weights_dir)
+                model_path = os.path.join(task_weights_dir, config["filename"])
                 model = load_nca_model(model_path, device)
-            print(f"  Model loaded: {type(model).__name__}")
+                print(f"  Model loaded: {type(model).__name__}")
         except Exception as e:
             print(f"  ERROR loading model: {e}")
             continue
 
         # Step 2: Find graph directory
-        graph_dir = find_graph_dir(SBC_GRAPHS, task_name, knn)
+        graph_base = sbc_graph_base(getattr(args, "fuzzy_mode", None)) if model_type == "ca" else SBC_GRAPHS
+        graph_dir = find_graph_dir(graph_base, task_name, knn)
         if graph_dir is None:
             print(f"  ERROR: graph dir not found for {task_name} k={knn}")
             continue
@@ -686,7 +865,7 @@ def run_transfer_learning(model_type, args):
                     n_classes=n_classes, n_folds=args.n_folds,
                     n_repeats=args.n_repeats, batch_size=bs,
                     epochs=args.epochs, lr=lr, weight_decay=wd,
-                    device_str=args.device, verbose=False,
+                    device_str=args.device, verbose=False, patience=args.patience,
                 )
 
                 mean_acc = mets_df["accuracy"].mean()
@@ -713,16 +892,17 @@ def run_transfer_learning(model_type, args):
                 n_classes=n_classes, n_folds=args.n_folds,
                 n_repeats=args.n_repeats, batch_size=args.batch_size,
                 epochs=args.epochs, lr=args.lr, weight_decay=None,
-                device_str=args.device,
+                device_str=args.device, patience=args.patience,
             )
 
         # Step 6: Save per-patient predictions CSV
         pred_dir = os.path.join(RESULTS_DIR, "predictions")
         os.makedirs(pred_dir, exist_ok=True)
 
+        mode_suffix = f"_{args.fuzzy_mode}" if getattr(args, "fuzzy_mode", None) else ""
         pred_path = os.path.join(
             pred_dir,
-            f"SBC_{task_key}_{model_label}_transfer_predictions.csv"
+            f"SBC_{task_key}_{model_label}{mode_suffix}_transfer_predictions.csv"
         )
         predictions_df.to_csv(pred_path, index=False)
         print(f"  Saved predictions: {pred_path} "
@@ -742,7 +922,7 @@ def run_transfer_learning(model_type, args):
         # Add task/model context to metrics
         metrics_df["task"] = task_name
         metrics_df["task_key"] = task_key
-        metrics_df["model_type"] = model_label
+        metrics_df["model_type"] = model_label + mode_suffix
         metrics_df["n_classes"] = n_classes
         task_results.append(metrics_df)
 
@@ -754,6 +934,7 @@ def run_transfer_learning(model_type, args):
     # Step 7: Save aggregate metrics CSV
     if task_results:
         all_metrics_df = pd.concat(task_results, ignore_index=True)
+        run_model_type = all_metrics_df["model_type"].iloc[0]
         metrics_path = os.path.join(
             RESULTS_DIR, "predictions", "SBC_transfer_metrics.csv"
         )
@@ -761,8 +942,8 @@ def run_transfer_learning(model_type, args):
         # If file exists and we're only running one model type, merge with existing
         if os.path.exists(metrics_path):
             existing = pd.read_csv(metrics_path)
-            # Remove rows for the current model_type to avoid duplicates
-            existing = existing[existing["model_type"] != model_label]
+            # Replace previous rows of the same model_type (+ fuzzy mode)
+            existing = existing[existing["model_type"] != run_model_type]
             all_metrics_df = pd.concat([existing, all_metrics_df], ignore_index=True)
 
         all_metrics_df.to_csv(metrics_path, index=False)
@@ -773,7 +954,7 @@ def run_transfer_learning(model_type, args):
 # Dry run
 # ---------------------------------------------------------------------------
 
-def dry_run_check():
+def dry_run_check(fuzzy_mode=None):
     """Verify all paths and data files exist without loading models."""
     print("=== DRY RUN: Checking paths and configs ===\n")
     ok = True
@@ -821,6 +1002,16 @@ def dry_run_check():
                 ok = False
 
     print()
+
+    if fuzzy_mode:
+        graph_base = sbc_graph_base(fuzzy_mode)
+        for key, cfg in GCN_MODELS.items():
+            path = fuzzy_checkpoint_path(fuzzy_mode, key)
+            gdir = find_graph_dir(graph_base, cfg["task"], cfg.get("knn", 19))
+            ok = ok and os.path.exists(path) and gdir is not None
+            print(f"  [{'OK' if os.path.exists(path) else 'MISSING'}] --fuzzy-mode {fuzzy_mode} {key}: {path}")
+            print(f"  [{'OK' if gdir else 'MISSING'}] --fuzzy-mode {fuzzy_mode} {key} SBC graphs: {gdir or graph_base}")
+        print()
 
     # Check output dirs
     pred_dir = os.path.join(RESULTS_DIR, "predictions")
@@ -871,6 +1062,13 @@ def parse_args():
         help="Training epochs per fold (default: 200)"
     )
     parser.add_argument(
+        "--patience", type=int, default=None,
+        help="Optional early-stopping patience on the held-out fold's F1. "
+             "Default: no early stopping (fixed --epochs, protocol used in the "
+             "TFG). If set, same convention as retrain_gcn_mccv_generic.py's "
+             "BCNB training (e.g. 30)"
+    )
+    parser.add_argument(
         "--lr", type=float, default=0.0001,
         help="Learning rate for classifier retraining (default: 0.0001)"
     )
@@ -886,6 +1084,13 @@ def parse_args():
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Only check paths and configs, don't load models"
+    )
+    parser.add_argument(
+        "--fuzzy-mode", type=str, default=None,
+        choices=FUZZY_MODES,
+        help="CA only: use as frozen backbone the BCNB model trained with this "
+             "edge weighting (weights/fuzzy/) instead of the reference work's "
+             "weights. Ignored for --models nca."
     )
     return parser.parse_args()
 
@@ -912,7 +1117,7 @@ def main():
     print()
 
     if args.dry_run:
-        dry_run_check()
+        dry_run_check(args.fuzzy_mode)
         return
 
     if _applied_patches:
