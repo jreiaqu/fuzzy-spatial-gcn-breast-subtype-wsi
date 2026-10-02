@@ -10,12 +10,14 @@ The Early Breast Cancer Core-Needle Biopsy (BCNB) dataset is publicly available:
 
 Place the pre-processed `.pt` graph files in `data/BCNB/`.
 
-Expected structure:
+Structure used by the training scripts:
 ```
 data/BCNB/
-  ├── graphs/          # Pre-computed KNN spatial graphs (.pt files)
-  ├── splits/          # Train/val/test split CSVs
-  └── ground_truth/    # Molecular subtype labels
+  ├── ground_truth/patient-clinical-data.xlsx
+  ├── patches_paths_class_perc/            # official train/val/test split CSVs
+  ├── results_graphs_november_23/          # k-NN graphs from WSI2Graph, one directory per task
+  ├── results_graphs_november_23_morph/    # + morphological distance (compute_morphological_edges.py)
+  └── results_graphs_november_23_fuzzy/    # rebuilt fuzzy graphs (generate_fuzzy_sigma_grid.py)
 ```
 
 ## SBC Dataset
@@ -24,13 +26,15 @@ The Stavanger Breast Cancer (SBC) dataset is a private collection from Stavanger
 
 Place the pre-processed `.pt` graph files in `data/SBC/`.
 
-Expected structure:
+Structure used by `scripts/training/retrain_classifier_predictions.py`:
 ```
 data/SBC/
-  ├── graphs/          # Pre-computed KNN spatial graphs (.pt files)
-  ├── folds/           # Cross-validation fold assignments
-  └── ground_truth/    # Molecular subtype labels
+  ├── results_graphs_january_25/<TASK>/graphs_k_19/          # k-NN graphs
+  ├── results_graphs_january_25_morph/<TASK>/graphs_k_19/    # + morphological distance
+  └── results_graphs_january_25_option1{,_rank2,_rank3}/<TASK>/graphs_k_19/   # rebuilt fuzzy graphs
+data/CLARIFY/CLARIFY JANUARY 2024/unified_clinical_info_CBDC_jan2024.xlsx  # SBC ground truth
 ```
+`<TASK>` is OTHERvsTNBC, LUMINALSvsHER2vsTNBC or LUMINALAvsLAUMINALBvsHER2vsTNBC.
 
 ## Graph Construction
 
@@ -42,4 +46,7 @@ Graphs are constructed from H&E whole-slide images using the WSI2Graph pipeline:
 Each `.pt` file contains a PyTorch Geometric `Data` object with:
 - `x`: Node features (N x 512)
 - `edge_index`: Graph connectivity (2 x E)
-- Spatial coordinates for convex hull and topology analysis
+- `edge_features`: normalized spatial distance of each edge
+- `centroid`: patch coordinates
+
+`compute_morphological_edges.py` adds `x_norm` and `edge_feat_dist`; `generate_fuzzy_graphs.py` adds `edge_index_fuzzy`, `edge_mu_fuzzy` and the related fields (see `scripts/fuzzy/inspect_pt.py`).
